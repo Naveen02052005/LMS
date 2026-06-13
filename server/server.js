@@ -21,6 +21,9 @@ const app = express()
 await connectDB();
 await connectCloudinary();
 
+app.post('/stripe',express.raw({type:'application/json'}),stripeWebhooks)
+
+
 // Middlewares
 
 app.use(cors())

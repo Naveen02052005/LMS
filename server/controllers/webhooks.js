@@ -3,6 +3,7 @@ import User from "../models/User.js"
 import Stripe from "stripe";
 import { Purchase } from "../models/Purchase.js";
 import Course from "../models/course.js";
+import { request } from "express";
 
 
 //  API Controller Function to Manage Clerk User with database
@@ -56,54 +57,82 @@ export const clerkWebhooks = async (req, res) => {
 }
 
 
+
+
+// Stripe Webhook Controller
 export const stripeWebhooks = async (request, response) => {
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+  const stripeInstance = new Stripe(process.env.STRIPE_SECRET_KEY);
 
   const sig = request.headers["stripe-signature"];
 
   let event;
 
   try {
-    event = stripe.webhooks.constructEvent(
+    event = Stripe.webhooks.constructEvent(
       request.body,
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
+    console.log("❌ Webhook signature verification failed:", err.message);
     return response.status(400).send(`Webhook Error: ${err.message}`);
   }
 
   try {
     switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object;
 
-        const purchaseId = session.metadata?.purchaseId;
+      // =========================
+      // PAYMENT SUCCESS
+      // =========================
+      case "payment_intent.succeeded": {
+        const paymentIntent = event.data.object;
+        const paymentIntentId = paymentIntent.id;
+
+        console.log("✅ Payment succeeded:", paymentIntentId);
+
+        // Get Checkout Session
+        const session = await stripeInstance.checkout.sessions.list({
+          payment_intent: paymentIntentId,
+          limit: 1,
+        });
+
+        if (!session.data.length) {
+          console.log("❌ No session found for payment intent");
+          return response.json({ received: true });
+        }
+
+        const purchaseId = session.data[0]?.metadata?.purchaseId;
 
         if (!purchaseId) {
-          return response.json({ message: "No purchaseId in metadata" });
+          console.log("❌ Missing purchaseId in metadata");
+          return response.json({ received: true });
         }
 
         const purchaseData = await Purchase.findById(purchaseId);
-
         if (!purchaseData) {
-          return response.json({ message: "Purchase not found" });
+          console.log("❌ Purchase not found");
+          return response.json({ received: true });
         }
 
         const userData = await User.findById(purchaseData.userId);
         const courseData = await Course.findById(purchaseData.courseId);
 
         if (!userData || !courseData) {
-          return response.json({ message: "User or Course not found" });
+          console.log("❌ User or Course not found");
+          return response.json({ received: true });
         }
 
-        // Avoid duplicates
-        if (!courseData.enrolledStudents.includes(userData._id)) {
+        // Prevent duplicate enrollment
+        const alreadyEnrolled = courseData.enrolledStudents.includes(userData._id);
+
+        if (!alreadyEnrolled) {
           courseData.enrolledStudents.push(userData._id);
           await courseData.save();
         }
 
-        if (!userData.enrolledCourses.includes(courseData._id)) {
+        const alreadyInUser = userData.enrolledCourses.includes(courseData._id);
+
+        if (!alreadyInUser) {
           userData.enrolledCourses.push(courseData._id);
           await userData.save();
         }
@@ -111,17 +140,33 @@ export const stripeWebhooks = async (request, response) => {
         purchaseData.status = "completed";
         await purchaseData.save();
 
-        console.log("PAYMENT SUCCESS → DB UPDATED");
+        console.log("🎉 MongoDB updated successfully for payment");
+
         break;
       }
 
-      case "checkout.session.async_payment_failed": {
-        const session = event.data.object;
+      // =========================
+      // PAYMENT FAILED
+      // =========================
+      case "payment_intent.payment_failed": {
+        const paymentIntent = event.data.object;
+        const paymentIntentId = paymentIntent.id;
 
-        const purchaseId = session.metadata?.purchaseId;
+        console.log("❌ Payment failed:", paymentIntentId);
+
+        const session = await stripeInstance.checkout.sessions.list({
+          payment_intent: paymentIntentId,
+          limit: 1,
+        });
+
+        if (!session.data.length) {
+          return response.json({ received: true });
+        }
+
+        const purchaseId = session.data[0]?.metadata?.purchaseId;
 
         if (!purchaseId) {
-          return response.json({ message: "No purchaseId in metadata" });
+          return response.json({ received: true });
         }
 
         const purchaseData = await Purchase.findById(purchaseId);
@@ -131,17 +176,18 @@ export const stripeWebhooks = async (request, response) => {
           await purchaseData.save();
         }
 
-        console.log("PAYMENT FAILED → DB UPDATED");
         break;
       }
 
+      // =========================
       default:
-        console.log(`Unhandled event type: ${event.type}`);
+        console.log("⚠️ Unhandled event:", event.type);
     }
 
     return response.json({ received: true });
+
   } catch (error) {
-    console.log("Webhook processing error:", error.message);
-    return response.status(500).json({ success: false });
+    console.log("❌ Webhook processing error:", error.message);
+    return response.status(500).json({ error: error.message });
   }
 };
