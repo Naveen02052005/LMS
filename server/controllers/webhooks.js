@@ -69,9 +69,9 @@ export const stripeWebhooks = async(request,response) =>{
         response.status(400).send(`Webhook Error: ${err.message}`);
     }
 
-    console.log(event.type);
     switch (event.type) {
     case 'payment_intent.succeeded':{
+         console.log("SUCCESS WEBHOOK HIT");
       const paymentIntent = event.data.object;
       const paymentIntentId = paymentIntent.id;
 
@@ -80,20 +80,23 @@ export const stripeWebhooks = async(request,response) =>{
       })
 
       const { purchaseId } = session.data[0].metadata;
-      console.log("Purchase ID:", purchaseId);
+      console.log("Session:", session.data[0]);
+
       const purchaseData = await Purchase.findById(purchaseId)
       const userData = await User.findById(purchaseData.userId)
       const courseData = await Course.findById(purchaseData.courseId.toString())
 
       courseData.enrolledStudents.push(userData);
       await courseData.save();
+      console.log("Purchase ID:", purchaseId);
 
       userData.enrolledCourses.push(courseData._id)
       await userData.save()
-
+      console.log("Purchase Data:", purchaseData);
       purchaseData.status = 'completed'
       await purchaseData.save();
 
+       console.log("STATUS UPDATED");
       break;
     }
     case 'payment_intent.payment_failed':{
