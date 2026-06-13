@@ -56,17 +56,15 @@ export const clerkWebhooks = async (req, res) => {
 }
 
 
-const stripeInstance = new Stripe(process.env.STRIPE_SECRET_KEY)
-
 export const stripeWebhooks = async(request,response) =>{
     console.log("WEb function called");
-    
+    const stripeInstance = new Stripe(process.env.STRIPE_SECRET_KEY)
     const sig = request.headers['stripe-signature'];
 
     let event;
 
     try {
-        event = stripeInstance.webhooks.constructEvent(request.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+        event = Stripe.webhooks.constructEvent(request.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
         console.log("Webhook function called");
     }
     catch (err) {
@@ -74,7 +72,7 @@ export const stripeWebhooks = async(request,response) =>{
     }
 
     switch (event.type) {
-    case 'payment_intent.succeeded':{
+    case 'checkout.session.completed':{
          console.log("SUCCESS WEBHOOK HIT");
       const paymentIntent = event.data.object;
       const paymentIntentId = paymentIntent.id;
@@ -103,7 +101,7 @@ export const stripeWebhooks = async(request,response) =>{
        console.log("STATUS UPDATED");
       break;
     }
-    case 'payment_intent.payment_failed':{
+    case 'checkout.session.async_payment_failed':{
        const paymentIntent = event.data.object;
       const paymentIntentId = paymentIntent.id;
 
