@@ -76,37 +76,51 @@ export const stripeWebhooks = async(request,response) => {
 
   console.log("Webhook received:", event.type);
   switch (event.type) {
-    case 'payment_intent.succeeded':{
-      console.log("Webhook received:", event.type);
+    case 'payment_intent.succeeded': {
+  try {
 
-const paymentIntent = event.data.object;
-console.log("Payment Intent ID:", paymentIntent.id);
+    console.log("SUCCESS EVENT STARTED");
 
-const session = await stripeInstance.checkout.sessions.list({
-  payment_intent: paymentIntent.id
-});
+    const paymentIntent = event.data.object;
+    const paymentIntentId = paymentIntent.id;
+    console.log("Payment Intent:", paymentIntentId);
 
-console.log("Session:", session.data[0]);
+    const session = await stripeInstance.checkout.sessions.list({
+      payment_intent: paymentIntentId
+    });
 
-const { purchaseId } = session.data[0].metadata;
-console.log("Purchase ID:", purchaseId);
+    console.log("Session Found:", session.data.length);
 
-const purchaseData = await Purchase.findById(purchaseId);
-console.log("Purchase Data:", purchaseData);
-      const userData = await User.findById(purchaseData.userId)
-      const courseData = await Course.findById(purchaseData.courseId.toString())
+    const { purchaseId } = session.data[0].metadata;
+    console.log("Purchase ID:", purchaseId);
 
-      courseData.enrolledStudents.push(userData._id)
-      await courseData.save();
+    const purchaseData = await Purchase.findById(purchaseId);
+    console.log("Purchase Found:", !!purchaseData);
 
-      userData.enrolledCourses.push(courseData._id);
-      await userData.save();
+    const userData = await User.findById(purchaseData.userId);
+    console.log("User Found:", !!userData);
 
-      purchaseData.status = 'completed';
-      await purchaseData.save();
+    const courseData = await Course.findById(purchaseData.courseId);
+    console.log("Course Found:", !!courseData);
 
+    courseData.enrolledStudents.push(userData._id);
+    await courseData.save();
+    console.log("Course Saved");
 
-      break;}
+    userData.enrolledCourses.push(courseData._id);
+    await userData.save();
+    console.log("User Saved");
+
+    purchaseData.status = 'completed';
+    await purchaseData.save();
+    console.log("Purchase Saved");
+
+  } catch(error) {
+    console.error("WEBHOOK ERROR:", error);
+  }
+
+  break;
+}
     case 'payment_intent.payment_failed':{
       try{
       const paymentIntent = event.data.object;
