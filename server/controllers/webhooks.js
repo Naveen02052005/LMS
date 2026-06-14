@@ -104,8 +104,12 @@ export const stripeWebhooks = async(request,response) => {
     console.log("Course Found:", !!courseData);
 
     courseData.enrolledStudents.push(userData._id);
-    await courseData.save();
-    console.log("Course Saved");
+    try {
+  await courseData.save();
+  console.log("Course saved");
+} catch (err) {
+  console.log("COURSE SAVE ERROR:", err);
+}
 
     userData.enrolledCourses.push(courseData._id);
     await userData.save();
